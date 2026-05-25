@@ -12,6 +12,7 @@ services:
       - .env
       - path: .env.local
         required: false
+    restart: unless-stopped
     volumes:
       - .:/app
       - cargo-registry-ssh:/usr/local/cargo/registry
@@ -31,6 +32,7 @@ services:
       context: .
       target: dev-web
     container_name: ${INSTANCE}-web
+    restart: unless-stopped
     ports:
       - "${LATE_WEB_PORT}:${LATE_WEB_PORT}"
     env_file:
@@ -56,6 +58,7 @@ services:
   postgres:
     container_name: ${INSTANCE}-postgres
     image: postgres:18
+    restart: unless-stopped
     ports:
       - "${LATE_PG_HOST_PORT}:5432"
     environment:
@@ -71,6 +74,7 @@ services:
   icecast:
     image: libretime/icecast:2.4.4
     container_name: ${INSTANCE}-icecast
+    restart: unless-stopped
     networks:
       default:
         aliases:
@@ -85,6 +89,7 @@ services:
     container_name: ${INSTANCE}-liquidsoap
     depends_on:
       - icecast
+    restart: unless-stopped
     volumes:
       - ./infra/liquidsoap/radio.liq:/etc/liquidsoap/radio.liq:ro
       - ./infra/liquidsoap/dev/lofi.m3u:/etc/liquidsoap/lofi.m3u:ro

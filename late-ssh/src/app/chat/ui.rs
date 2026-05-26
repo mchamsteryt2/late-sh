@@ -27,6 +27,7 @@ use crate::app::files::{
         TerminalImageData, TerminalImageFrame, TerminalImagePlacement, TerminalImageProtocol,
     },
 };
+use crate::usernames::UsernameLookup;
 
 use super::state::{
     MentionMatch, ROOM_JUMP_KEYS, RoomSection, RoomSlot, RoomVisualOrderInput,
@@ -55,7 +56,7 @@ pub struct DashboardChatView<'a> {
     pub overlay: Option<&'a Overlay>,
     pub image_modal: Option<ImageModalView<'a>>,
     pub rows_cache: &'a mut ChatRowsCache,
-    pub usernames: &'a HashMap<Uuid, String>,
+    pub usernames: &'a UsernameLookup<'a>,
     pub countries: &'a HashMap<Uuid, String>,
     pub friend_user_ids: &'a HashSet<Uuid>,
     pub message_reactions: &'a HashMap<Uuid, Vec<ChatMessageReactionSummary>>,
@@ -73,6 +74,7 @@ pub struct DashboardChatView<'a> {
     pub reply_author: Option<&'a str>,
     pub is_editing: bool,
     pub bonsai_glyphs: &'a HashMap<Uuid, String>,
+    pub chat_badges: &'a HashMap<Uuid, String>,
     pub inline_images: &'a HashMap<Uuid, InlineImagePreview>,
 }
 
@@ -414,6 +416,7 @@ pub fn draw_dashboard_chat_card(
                 countries: view.countries,
                 friend_user_ids: view.friend_user_ids,
                 bonsai_glyphs: view.bonsai_glyphs,
+                chat_badges: view.chat_badges,
                 message_reactions: view.message_reactions,
                 inline_images: view.inline_images,
             },
@@ -457,10 +460,11 @@ pub fn draw_dashboard_chat_card(
 
 struct ChatRowsContext<'a> {
     current_user_id: Uuid,
-    usernames: &'a HashMap<Uuid, String>,
+    usernames: &'a UsernameLookup<'a>,
     countries: &'a HashMap<Uuid, String>,
     friend_user_ids: &'a HashSet<Uuid>,
     bonsai_glyphs: &'a HashMap<Uuid, String>,
+    chat_badges: &'a HashMap<Uuid, String>,
     message_reactions: &'a HashMap<Uuid, Vec<ChatMessageReactionSummary>>,
     inline_images: &'a HashMap<Uuid, InlineImagePreview>,
 }
@@ -495,6 +499,7 @@ fn chat_rows_fingerprint(
         ctx.countries.get(&msg.user_id).hash(&mut hasher);
         ctx.friend_user_ids.contains(&msg.user_id).hash(&mut hasher);
         ctx.bonsai_glyphs.get(&msg.user_id).hash(&mut hasher);
+        ctx.chat_badges.get(&msg.user_id).hash(&mut hasher);
         ctx.message_reactions.get(&msg.id).hash(&mut hasher);
         if let Some(lines) = ctx.inline_images.get(&msg.id) {
             true.hash(&mut hasher);
@@ -571,6 +576,7 @@ fn ensure_chat_rows_cache(
         let body_style = Style::default().fg(theme::CHAT_BODY());
         let author_badges = format_author_badge_suffix(
             super::special_badges::special_badges(&author),
+            ctx.chat_badges.get(&msg.user_id).map(String::as_str),
             ctx.bonsai_glyphs.get(&msg.user_id).map(String::as_str),
         );
         let prefix = if is_friend {
@@ -956,8 +962,12 @@ fn format_username_with_country(
     username.to_string()
 }
 
-fn format_author_badge_suffix(special_badges: &[&str], bonsai_badge: Option<&str>) -> String {
-    let extra_badge = usize::from(bonsai_badge.is_some());
+fn format_author_badge_suffix(
+    special_badges: &[&str],
+    chat_badge: Option<&str>,
+    bonsai_badge: Option<&str>,
+) -> String {
+    let extra_badge = usize::from(chat_badge.is_some()) + usize::from(bonsai_badge.is_some());
     let mut badges = Vec::with_capacity(special_badges.len() + extra_badge);
     badges.extend(
         special_badges
@@ -965,6 +975,9 @@ fn format_author_badge_suffix(special_badges: &[&str], bonsai_badge: Option<&str
             .copied()
             .filter(|badge| !badge.is_empty()),
     );
+    if let Some(badge) = chat_badge.filter(|badge| !badge.is_empty()) {
+        badges.push(badge);
+    }
     if let Some(badge) = bonsai_badge.filter(|badge| !badge.is_empty()) {
         badges.push(badge);
     }
@@ -1064,7 +1077,7 @@ pub struct ChatRenderInput<'a> {
     )],
     pub overlay: Option<&'a Overlay>,
     pub image_modal: Option<ImageModalView<'a>>,
-    pub usernames: &'a HashMap<Uuid, String>,
+    pub usernames: &'a UsernameLookup<'a>,
     pub countries: &'a HashMap<Uuid, String>,
     pub friend_user_ids: &'a HashSet<Uuid>,
     pub message_reactions: &'a HashMap<Uuid, Vec<ChatMessageReactionSummary>>,
@@ -1091,6 +1104,7 @@ pub struct ChatRenderInput<'a> {
     pub reply_author: Option<&'a str>,
     pub is_editing: bool,
     pub bonsai_glyphs: &'a HashMap<Uuid, String>,
+    pub chat_badges: &'a HashMap<Uuid, String>,
     pub news_composer: &'a TextArea<'static>,
     pub news_composing: bool,
     pub news_processing: bool,
@@ -1127,7 +1141,7 @@ impl ChatSelectionMode {
 
 pub(crate) struct ChatRoomListView<'a> {
     pub chat_rooms: &'a [(ChatRoom, Vec<ChatMessage>)],
-    pub usernames: &'a HashMap<Uuid, String>,
+    pub usernames: &'a UsernameLookup<'a>,
     pub unread_counts: &'a HashMap<Uuid, i64>,
     pub room_last_message_at: &'a HashMap<Uuid, Option<DateTime<Utc>>>,
     pub favorite_room_ids: &'a [Uuid],
@@ -1156,7 +1170,7 @@ pub struct EmbeddedRoomChatView<'a> {
     pub overlay: Option<&'a Overlay>,
     pub image_modal: Option<ImageModalView<'a>>,
     pub rows_cache: &'a mut ChatRowsCache,
-    pub usernames: &'a HashMap<Uuid, String>,
+    pub usernames: &'a UsernameLookup<'a>,
     pub countries: &'a HashMap<Uuid, String>,
     pub friend_user_ids: &'a HashSet<Uuid>,
     pub message_reactions: &'a HashMap<Uuid, Vec<ChatMessageReactionSummary>>,
@@ -1174,6 +1188,7 @@ pub struct EmbeddedRoomChatView<'a> {
     pub reply_author: Option<&'a str>,
     pub is_editing: bool,
     pub bonsai_glyphs: &'a HashMap<Uuid, String>,
+    pub chat_badges: &'a HashMap<Uuid, String>,
 }
 
 pub fn draw_embedded_room_chat(
@@ -1219,6 +1234,7 @@ pub fn draw_embedded_room_chat(
             countries: view.countries,
             friend_user_ids: view.friend_user_ids,
             bonsai_glyphs: view.bonsai_glyphs,
+            chat_badges: view.chat_badges,
             message_reactions: view.message_reactions,
             inline_images: view.inline_images,
         },
@@ -2345,7 +2361,7 @@ fn room_slot_label_and_unread(view: &ChatRoomListView<'_>, slot: RoomSlot) -> (S
 
 fn room_display_label(
     room: &ChatRoom,
-    usernames: &HashMap<Uuid, String>,
+    usernames: &UsernameLookup<'_>,
     current_user_id: Uuid,
 ) -> String {
     if room.kind == "dm" {
@@ -2410,7 +2426,7 @@ fn cozy_slot_selected(view: &ChatRoomListView<'_>, slot: RoomSlot) -> bool {
 
 fn dm_display_label(
     room: &ChatRoom,
-    usernames: &HashMap<Uuid, String>,
+    usernames: &UsernameLookup<'_>,
     current_user_id: Uuid,
 ) -> String {
     let other = if room.dm_user_a == Some(current_user_id) {
@@ -2500,6 +2516,7 @@ fn draw_selected_content(
                     countries: view.countries,
                     friend_user_ids: view.friend_user_ids,
                     bonsai_glyphs: view.bonsai_glyphs,
+                    chat_badges: view.chat_badges,
                     message_reactions: view.message_reactions,
                     inline_images: view.inline_images,
                 },
@@ -2688,15 +2705,19 @@ mod tests {
     #[test]
     fn author_badge_suffix_keeps_badges_compact() {
         assert_eq!(
-            format_author_badge_suffix(&["mod", "dev"], None),
+            format_author_badge_suffix(&["mod", "dev"], None, None),
             " mod dev"
         );
         assert_eq!(
-            format_author_badge_suffix(&["mod"], Some("bonsai")),
-            " mod bonsai"
+            format_author_badge_suffix(&["mod"], Some("🐱"), Some("bonsai")),
+            " mod 🐱 bonsai"
         );
-        assert_eq!(format_author_badge_suffix(&[], Some("bonsai")), " bonsai");
-        assert_eq!(format_author_badge_suffix(&[], None), "");
+        assert_eq!(format_author_badge_suffix(&[], Some("🐱"), None), " 🐱");
+        assert_eq!(
+            format_author_badge_suffix(&[], None, Some("bonsai")),
+            " bonsai"
+        );
+        assert_eq!(format_author_badge_suffix(&[], None, None), "");
     }
 
     #[test]
@@ -2739,17 +2760,20 @@ mod tests {
         let usernames = HashMap::from([(user_id, "alice".to_string())]);
         let countries = HashMap::new();
         let bonsai_glyphs = HashMap::new();
+        let chat_badges = HashMap::new();
         let friend_user_ids = HashSet::new();
         let message_reactions = HashMap::new();
         let inline_images = HashMap::new();
+        let username_lookup = UsernameLookup::new(&usernames, None);
 
         let messages = vec![&message];
         let ctx = ChatRowsContext {
             current_user_id: user_id,
-            usernames: &usernames,
+            usernames: &username_lookup,
             countries: &countries,
             friend_user_ids: &friend_user_ids,
             bonsai_glyphs: &bonsai_glyphs,
+            chat_badges: &chat_badges,
             message_reactions: &message_reactions,
             inline_images: &inline_images,
         };
@@ -2783,11 +2807,12 @@ mod tests {
         rows_cache: &'a mut ChatRowsCache,
         rooms: &'a [(ChatRoom, Vec<ChatMessage>)],
         selected_room_id: Option<Uuid>,
-        usernames: &'a HashMap<Uuid, String>,
+        usernames: &'a UsernameLookup<'a>,
         countries: &'a HashMap<Uuid, String>,
         message_reactions: &'a HashMap<Uuid, Vec<ChatMessageReactionSummary>>,
         unread_counts: &'a HashMap<Uuid, i64>,
         bonsai_glyphs: &'a HashMap<Uuid, String>,
+        chat_badges: &'a HashMap<Uuid, String>,
         composer: &'a TextArea<'static>,
         news_composer: &'a TextArea<'static>,
     ) -> ChatRenderInput<'a> {
@@ -2852,6 +2877,7 @@ mod tests {
             reply_author: None,
             is_editing: false,
             bonsai_glyphs,
+            chat_badges,
             news_composer,
             news_composing: false,
             news_processing: false,
@@ -3228,21 +3254,24 @@ mod tests {
         let rooms = vec![(general.clone(), Vec::new())];
         let mut rows_cache = ChatRowsCache::default();
         let usernames = HashMap::new();
+        let username_lookup = UsernameLookup::new(&usernames, None);
         let countries = HashMap::new();
         let message_reactions = HashMap::new();
         let unread_counts = HashMap::new();
         let bonsai_glyphs = HashMap::new();
+        let chat_badges = HashMap::new();
         let composer = TextArea::default();
         let news_composer = TextArea::default();
         let view = chat_view(
             &mut rows_cache,
             &rooms,
             Some(general.id),
-            &usernames,
+            &username_lookup,
             &countries,
             &message_reactions,
             &unread_counts,
             &bonsai_glyphs,
+            &chat_badges,
             &composer,
             &news_composer,
         );
@@ -3275,21 +3304,24 @@ mod tests {
         let rooms = Vec::new();
         let mut rows_cache = ChatRowsCache::default();
         let usernames = HashMap::new();
+        let username_lookup = UsernameLookup::new(&usernames, None);
         let countries = HashMap::new();
         let message_reactions = HashMap::new();
         let unread_counts = HashMap::new();
         let bonsai_glyphs = HashMap::new();
+        let chat_badges = HashMap::new();
         let composer = TextArea::default();
         let news_composer = TextArea::default();
         let view = chat_view(
             &mut rows_cache,
             &rooms,
             None,
-            &usernames,
+            &username_lookup,
             &countries,
             &message_reactions,
             &unread_counts,
             &bonsai_glyphs,
+            &chat_badges,
             &composer,
             &news_composer,
         );
@@ -3341,21 +3373,24 @@ mod tests {
         let rooms = vec![(general.clone(), Vec::new()), (rust.clone(), Vec::new())];
         let mut rows_cache = ChatRowsCache::default();
         let usernames = HashMap::new();
+        let username_lookup = UsernameLookup::new(&usernames, None);
         let countries = HashMap::new();
         let message_reactions = HashMap::new();
         let unread_counts = HashMap::new();
         let bonsai_glyphs = HashMap::new();
+        let chat_badges = HashMap::new();
         let composer = TextArea::default();
         let news_composer = TextArea::default();
         let mut view = chat_view(
             &mut rows_cache,
             &rooms,
             None,
-            &usernames,
+            &username_lookup,
             &countries,
             &message_reactions,
             &unread_counts,
             &bonsai_glyphs,
+            &chat_badges,
             &composer,
             &news_composer,
         );
@@ -3432,21 +3467,24 @@ mod tests {
         let favorite_room_ids = vec![general.id];
         let mut rows_cache = ChatRowsCache::default();
         let usernames = HashMap::new();
+        let username_lookup = UsernameLookup::new(&usernames, None);
         let countries = HashMap::new();
         let message_reactions = HashMap::new();
         let unread_counts = HashMap::new();
         let bonsai_glyphs = HashMap::new();
+        let chat_badges = HashMap::new();
         let composer = TextArea::default();
         let news_composer = TextArea::default();
         let mut view = chat_view(
             &mut rows_cache,
             &rooms,
             None,
-            &usernames,
+            &username_lookup,
             &countries,
             &message_reactions,
             &unread_counts,
             &bonsai_glyphs,
+            &chat_badges,
             &composer,
             &news_composer,
         );
@@ -3509,21 +3547,24 @@ mod tests {
         let rooms = vec![(general.clone(), Vec::new()), (game.clone(), Vec::new())];
         let mut rows_cache = ChatRowsCache::default();
         let usernames = HashMap::new();
+        let username_lookup = UsernameLookup::new(&usernames, None);
         let countries = HashMap::new();
         let message_reactions = HashMap::new();
         let unread_counts = HashMap::new();
         let bonsai_glyphs = HashMap::new();
+        let chat_badges = HashMap::new();
         let composer = TextArea::default();
         let news_composer = TextArea::default();
         let view = chat_view(
             &mut rows_cache,
             &rooms,
             Some(general.id),
-            &usernames,
+            &username_lookup,
             &countries,
             &message_reactions,
             &unread_counts,
             &bonsai_glyphs,
+            &chat_badges,
             &composer,
             &news_composer,
         );
@@ -3565,21 +3606,24 @@ mod tests {
         let rooms = vec![(general.clone(), Vec::new()), (rust.clone(), Vec::new())];
         let mut rows_cache = ChatRowsCache::default();
         let usernames = HashMap::new();
+        let username_lookup = UsernameLookup::new(&usernames, None);
         let countries = HashMap::new();
         let message_reactions = HashMap::new();
         let unread_counts = HashMap::new();
         let bonsai_glyphs = HashMap::new();
+        let chat_badges = HashMap::new();
         let composer = TextArea::default();
         let news_composer = TextArea::default();
         let view = chat_view(
             &mut rows_cache,
             &rooms,
             Some(general.id),
-            &usernames,
+            &username_lookup,
             &countries,
             &message_reactions,
             &unread_counts,
             &bonsai_glyphs,
+            &chat_badges,
             &composer,
             &news_composer,
         );
